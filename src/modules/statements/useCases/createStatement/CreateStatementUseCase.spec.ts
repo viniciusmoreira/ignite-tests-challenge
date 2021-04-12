@@ -1,3 +1,7 @@
+import request from 'supertest';
+import { createConnection, Connection } from 'typeorm';
+import { app } from '../../../../app';
+
 import { InMemoryStatementsRepository } from "../../repositories/in-memory/InMemoryStatementsRepository";
 import { IStatementsRepository } from "../../../statements/repositories/IStatementsRepository";
 import { InMemoryUsersRepository } from "../../../users/repositories/in-memory/InMemoryUsersRepository";
@@ -16,6 +20,37 @@ describe('CreateStatementUseCase', () => {
   let statementsRepository: IStatementsRepository;
   let createStatementUseCase: CreateStatementUseCase;
   let createUserUseCase: CreateUserUseCase;
+  let connection: Connection;
+  let token: string;
+
+  beforeAll(async () => {
+    connection = await createConnection();
+
+    await connection.dropDatabase();
+    await connection.runMigrations();
+
+    const user = {
+      name: 'User1',
+      email: 'user1@user.com',
+      password: '1234'
+    }
+    const userResponse = await request(app)
+      .post('/api/v1/users')
+      .send(user)
+
+    const authResponse = await request(app)
+      .post('/api/v1/sessions')
+      .send({
+        email: 'user1@user.com',
+        password: '1234'
+      });
+
+    token = authResponse.body.token;
+  })
+
+  afterAll(async () => {
+    await connection.close();
+  })
 
   beforeEach(() => {
     usersRepository = new InMemoryUsersRepository();
@@ -97,5 +132,47 @@ describe('CreateStatementUseCase', () => {
         description: 'Withdraw'
       });
     }).rejects.toBeInstanceOf(AppError)
+  })
+
+  it('POST /api/v1/statements/deposit', async () => {
+    const response = await request(app)
+      .post('/api/v1/statements/deposit')
+      .set({
+        authorization: `Bearer ${token}`
+      })
+      .send({
+        amount: 100,
+        description: 'Integration test'
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body).toHaveProperty('id');
+    expect(response.body.amount).toBe(100);
+  })
+
+  it('POST /api/v1/statements/withdraw', async () => {
+    await request(app)
+      .post('/api/v1/statements/deposit')
+      .set({
+        authorization: `Bearer ${token}`
+      })
+      .send({
+        amount: 100,
+        description: 'Integration test'
+      });
+
+    const response = await request(app)
+      .post('/api/v1/statements/deposit')
+      .set({
+        authorization: `Bearer ${token}`
+      })
+      .send({
+        amount: 50,
+        description: 'Integration test'
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body).toHaveProperty('id');
+    expect(response.body.amount).toBe(50);
   })
 })

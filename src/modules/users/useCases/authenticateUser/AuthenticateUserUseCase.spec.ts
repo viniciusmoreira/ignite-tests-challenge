@@ -1,3 +1,6 @@
+import request from 'supertest';
+import { app } from '../../../../app';
+import { createConnection, Connection } from 'typeorm';
 import { AppError } from "../../../../shared/errors/AppError";
 import { InMemoryUsersRepository } from "../../repositories/in-memory/InMemoryUsersRepository";
 import { IUsersRepository } from "../../repositories/IUsersRepository"
@@ -8,6 +11,18 @@ describe('AuthenticateUserUseCase', () => {
   let usersRepository: IUsersRepository;
   let authenticateUserUseCase: AuthenticateUserUseCase;
   let createUserUseCase: CreateUserUseCase;
+  let connection: Connection;
+
+  beforeAll(async () => {
+    connection = await createConnection();
+
+    await connection.dropDatabase();
+    await connection.runMigrations();
+  })
+
+  afterAll(async () => {
+    await connection.close();
+  })
 
   beforeEach(() => {
     usersRepository = new InMemoryUsersRepository();
@@ -49,5 +64,24 @@ describe('AuthenticateUserUseCase', () => {
     expect(async () => {
       await authenticateUserUseCase.execute({ email: user.email, password: '4321' })
     }).rejects.toBeInstanceOf(AppError);
+  })
+
+  it('POST /api/v1/sessions', async () => {
+    const userResponse = await request(app)
+      .post('/api/v1/users')
+      .send({
+        name: 'User1',
+        email: 'user1@user.com',
+        password: '1234'
+      })
+
+    const response = await request(app)
+      .post('/api/v1/sessions')
+      .send({
+        email: 'user1@user.com',
+        password: '1234'
+      });
+
+    expect(response.body).toHaveProperty('token');
   })
 })

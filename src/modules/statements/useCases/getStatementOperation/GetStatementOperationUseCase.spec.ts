@@ -1,3 +1,7 @@
+import request from 'supertest';
+import { createConnection, Connection } from 'typeorm';
+import { app } from '../../../../app';
+
 import { InMemoryStatementsRepository } from "../../repositories/in-memory/InMemoryStatementsRepository";
 import { IStatementsRepository } from "../../../statements/repositories/IStatementsRepository";
 import { InMemoryUsersRepository } from "../../../users/repositories/in-memory/InMemoryUsersRepository";
@@ -18,6 +22,37 @@ describe('GetStatementOperationUseCase', () => {
   let getStatementOperationUseCase: GetStatementOperationUseCase;
   let createUserUseCase: CreateUserUseCase;
   let createStatementUseCase: CreateStatementUseCase;
+  let connection: Connection;
+  let token: string;
+
+  beforeAll(async () => {
+    connection = await createConnection();
+
+    await connection.dropDatabase();
+    await connection.runMigrations();
+
+    const user = {
+      name: 'User1',
+      email: 'user1@user.com',
+      password: '1234'
+    }
+    const userResponse = await request(app)
+      .post('/api/v1/users')
+      .send(user)
+
+    const authResponse = await request(app)
+      .post('/api/v1/sessions')
+      .send({
+        email: 'user1@user.com',
+        password: '1234'
+      });
+
+    token = authResponse.body.token;
+  })
+
+  afterAll(async () => {
+    await connection.close();
+  })
 
   beforeEach(() => {
     usersRepository = new InMemoryUsersRepository();
@@ -72,5 +107,30 @@ describe('GetStatementOperationUseCase', () => {
         statement_id: 'non-exist-statement'
       });
     }).rejects.toBeInstanceOf(AppError)
+  })
+
+  it('GET /api/v1/statements/:statement_id', async () => {
+    const statementResponse = await request(app)
+      .post('/api/v1/statements/deposit')
+      .set({
+        authorization: `Bearer ${token}`
+      })
+      .send({
+        amount: 100,
+        description: 'Integration test'
+      });
+
+    const response = await request(app)
+      .get(`/api/v1/statements/${statementResponse.body.id}`)
+      .set({
+        authorization: `Bearer ${token}`
+      })
+      .send();
+
+    expect(response.status).toBe(200);
+    expect(response.body).toHaveProperty('id');
+    expect(response.body).toHaveProperty('user_id');
+    expect(response.body).toHaveProperty('amount');
+    expect(parseFloat(response.body.amount)).toBe(100);
   })
 })
